@@ -1,0 +1,1017 @@
+---
+title: "RNA-seq Downstream-Pipeline"
+subtitle: "Tetracyclin, Rattenleber · GSE144219 · rn6/Rnor_6.0"
+author: "Toxikogenomik-Pipeline"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    fig_caption: true
+    toc: true
+    toc_float: true
+    toc_depth: 3
+    number_sections: true
+    code_folding: show
+editor_options: 
+  markdown: 
+    wrap: 72
+---
+
+# Galaxy-Workflow
+
+GALAXY-Teil, auf usegalaxy ausgegührt. Ziel ist die Count-Matrix (Gene ×
+Proben), die der R-Teil einliest. Datensatz GSE144219 (GEO), Rattus
+norvegicus, Leber; Referenzgenom Rnor_6.0 (rn6, vgl.
+[https://doi.org/10.1093/toxsci/kfaa026](#0){.uri}). Ablauf:
+Daten-Download, Qualitätskontrolle, Trimming, erneute
+Qualitätskontrolle, Alignment, Annotation und Read-Zählung,
+Count-Matrix.
+
+Vorlage (tw. abgeändert):
+
+- <https://training.galaxyproject.org/training-material/topics/transcriptomics/tutorials/rna-seq-reads-to-counts/tutorial.html>
+
+- <https://training.galaxyproject.org/training-material/topics/transcriptomics/tutorials/ref-based/tutorial.html>
+
+## Projekt anlegen und Daten herunterladen
+
+Galaxy-Konto (usegalaxy.eu/) angelegt und per Mail bestätigt, neue
+History "tetracycline" erstellt. Für die ausgewählten Proben (4x
+Kontrolle, 4x Behandlung) die SRR-Run-Accessions über NCBI bestimmt und
+eine Abgleichstabelle (TSV) GSM ↔ SRA ↔ SRR angelegt. Diese Tabelle wird
+in R gebraucht, weil dort mit GSM-IDs und Bedingungen (control vs.
+treatment) gearbeitet werden sollte, Galaxy aber die SRR-IDs der
+einzelnen Sequenzierläufe verwendet.
+
+Proben (GSM ↔ SRR):
+
+- Kontrolle: GSM4283621 ↔ SRR11025984, GSM4283622 ↔ SRR11025985,
+  GSM4283623 ↔ SRR11025986
+- Behandlung: GSM4283625 ↔ SRR11025988, GSM4283626 ↔ SRR11025989,
+  GSM4283627 ↔ SRR11025990
+
+FASTQ-Daten mit dem Tool "Download and Extract Reads in FASTQ format
+from NCBI SRA" geladen (SRR-IDs kommagetrennt in die Maske). Das Tool
+erzeugt je einen Single-End- und einen Paired-End-Output (fastq-dump);
+weiterverwendet wird der Paired-End-Output. Aus den rohen
+fastqsanger-Dateien eine flache Collection angelegt, die einzelnen
+Proben als SRR...\_R1 bzw. SRR...\_R2 benannt.
+
+## Qualitätskontrolle
+
+Quality-Report mit Falco (statt FastQC: gleiche Funktionalität, etwa
+dreifach schneller), anschließend mit MultiQC über die
+Falco-Ergebnis-Collection zu einer Übersicht zusammengefasst. Geprüfte
+Metriken:
+
+- Per base sequence quality: Phred-Score \> 28 gut, \< 20 schlecht
+- Per sequence quality scores: Median möglichst hoch
+- Per base sequence content: keine starke Verzerrung (z. B. durch
+  Adapter)
+- Adapter content: keine Adapter-Sequenzen (sonst ist Trimming nötig
+  bzw. nicht erfolgreich)
+- Duplicate sequences: hohe Duplikatrate kann auf PCR-Bias hindeuten
+
+## Trimming
+
+Trimming mit Trimmomatic (Galaxy 0.39+galaxy2) auf den Paired-End-Daten
+(als Collection, nicht der flachen Collection). Parameter:
+
+- ILLUMINACLIP: TruSeq3-PE.fa, Seed-Mismatches 2,
+  Palindrome-Clip-Threshold 30, Simple-Clip-Threshold 10,
+  Min-Adapter-Length 4, keepBothReads
+- SLIDINGWINDOW: 4:15
+- LEADING: 3
+- TRAILING: 3
+- MINLEN: 36
+
+Aus den getrimmten Daten eine flache Collection (R1/R2) sowie eine
+Paired-End-Collection für das anschließende Alignment angelegt.
+
+## Qualitätskontrolle nach dem Trimming
+
+Falco erneut auf der getrimmten R1/R2-Collection, danach MultiQC zur
+Kontrolle, dass das Trimming gegriffen hat.
+
+## Alignment
+
+Alignment mit HISAT2 (v2.2.1, Kim et al., Nature Methods 2015) gegen
+Rnor_6.0 (in der Galaxy-Datenbank hinterlegt), Input ist die getrimmte
+Paired-End-Collection. STAR wäre die übliche Wahl für hochwertiges
+RNA-seq, hier aber bewusst HISAT2 wegen der guten Eignung für kurze
+Reads (ca. 51 bp; Graph-FM-Index mit BW-Transformation) und kürzerer
+Wartezeiten auf den Galaxy-Servern. HISAT2 mit Standardeinstellungen;
+die Strangspezifität wird erst beim Zählen in featureCounts
+berücksichtigt. Sie wurde zuvor als stranded recherchiert: über den
+GEO-Eintrag
+(<https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSM4283626>) und
+mit dem Tool Infer Experiment auf der HISAT2-BAM aber als unstranded
+identifiert. Mapping-Zusammenfassung im maschinenlesbaren Format
+ausgegeben (für MultiQC), danach MultiQC auf der HISAT2-Summary zur
+Prüfung der Alignment-Qualität.
+
+## Annotation und Read-Zählung
+
+Gen-Annotation für Rnor_6.0 von Ensembl release-94 heruntergeladen
+(<https://ftp.ensembl.org/pub/release-94/gtf/rattus_norvegicus/>) und in
+die History importiert. Die Chromosomen-Benennung weicht zwischen
+Referenz/BAM und GTF ab (mit Samtools idxstats auf der BAM prüfbar),
+daher die GTF mit "Replace Text in a specific column" angepasst:
+
+- Spalte c1, Suchmuster \^([0-9]+\|X\|Y)\$, Ersatz chr\\1
+- zweiter Lauf: \^MT\$ → chrM
+
+Read-Zählung mit featureCounts:
+
+- Input: HISAT2-BAM-Collection
+- Output-Format: tabular (für limma-voom/edgeR lesbar)
+- Strang: unstranded (TruSeq Stranded mRNA, vgl. NCBI)
+- Paired-End: ja
+- Count fragments instead of reads (sonst werden Fragmente mehrfach
+  gezählt)
+
+Ergebnis je Probe: Tabelle mit GeneID und Counts.
+
+## Count-Matrix
+
+Die Einzeltabellen mit "Column Join" zu einer Matrix verbunden
+(Identifier-Spalte 1 = GeneID, 1 Header-Zeile). Die resultierende
+Tabelle heruntergeladen; sie ist der Input für den R-Teil
+(../data/galaxy_featurecounts.tabular). Zusätzlich alle relevanten
+Tabellen, Reports und Webseiten für Dokumentation und Präsentation aus
+Galaxy exportiert.
+
+## weiteres Vorgehen bis goseq
+
+Das Turorial *Reference-based RNA-Seq data analysis* wurde bis zum Ende
+in galaxy umgesetzt, um später Vergleichswerte für
+Plots/Zwischenergebnisse + GSEA zu haben (gleiche Pathways in R pipeline
+wie in Galaxy?)
+
+# R- Pipeline Überblick
+
+```{r setup, include=FALSE}
+# Dokument als annotiertes Referenzskript. eval=FALSE, damit es ohne die schweren
+# Bioconductor-Pakete und die Galaxy-Daten zu HTML rendert. Zum Rechnen einzelne
+# Chunks (oder global) auf eval=TRUE setzen.
+knitr::opts_chunk$set(echo = TRUE, eval = TRUE, message = TRUE, warning = FALSE,
+                      fig.align = "center", fig.width = 5, fig.height = 3)
+```
+
+# 
+
+Die Pipeline nimmt die in Galaxy erzeugte Count-Matrix (Rattenleber, 4x
+Tetracyclin gegen 4x Kontrolle) und führt drei Schritte aus: (A)
+explorative Qualitätskontrolle (B) Korrektur unerwünschter Variation mit
+RUVSeq (C) Pathway-Enrichment mit multiGSEA.
+
+Ergebnis ist eine für technische Störfaktoren korrigierte differentielle
+Expression und deren biologische Einordnung über KEGG/Reactome und
+HALLMARK.
+
+Die drei Blöcke reproduzieren je eine offizielle Vignette: Block A die
+Carpentries-Lektion
+<https://carpentries-incubator.github.io/bioc-rnaseq/07-gene-set-analysis.html>,
+Block B die Bioconductor-RUVSeq-Pipeline
+<https://www.bioconductor.org/packages//release/bioc/vignettes/RUVSeq/inst/doc/RUVSeq.html>
+(Risso et al. 2014), Block C die multiGSEA-Pipeline
+<https://bioconductor.org/packages/release/bioc/vignettes/multiGSEA/inst/doc/multiGSEA.html>
+(Canzler et Hackermüller 2020). Upstream (nicht Teil dieses Skripts)
+liegt der Galaxy-Workflow FastQC → STAR (rn6/Rnor_6.0) → featureCounts;
+der Datensatz ist GSE144219 (GEO), *Rattus norvegicus*, Leber.
+
+Biologischer Hintergrund: Tetracycline hemmen primär die bakterielle
+Translation, als Off-Target aber auch die mitochondriale Translation
+(Mitoribosom). Das führt zu Ausfall der 13 mtDNA-kodierten
+OXPHOS-Untereinheiten, einem mitonukleären Ungleichgewicht und der
+integrierten Stressantwort (ISR/ATF4). In der Leber ist der klassische
+Phänotyp die mikrovesikuläre Steatose (Hemmung der β-Oxidation,
+gestörter Triglycerid-Export). Daran werden die Enrichment-Ergebnisse
+gemessen.
+
+# Setup + Pakete
+
+Installation der benötigten Bioconductor- und CRAN-Pakete.
+
+```{r install, eval=FALSE}
+install.packages("BiocManager")
+BiocManager::install(c(
+  "SummarizedExperiment", "DESeq2", "vsn", "ComplexHeatmap", "RUVSeq", "edgeR",
+  "multiGSEA", "org.Rn.eg.db", "iSEE", "limma", "GenomicAlignments", "GenomicFeatures",
+  "AnnotationDbi", "rtracklayer", "ShortRead", "Rsamtools", "BiocFileCache", "KEGGREST",
+  "biomaRt", "AnnotationHub"), ask = FALSE, update = FALSE)
+install.packages(c("ggplot2", "hexbin", "RColorBrewer", "magrittr", "data.table",
+                   "msigdbr", "dplyr", "ggrepel", "EDASeq"), dependencies = TRUE)
+```
+
+```{r libraries}
+library(SummarizedExperiment)
+library(DESeq2)
+library(vsn)
+library(ComplexHeatmap)
+library(EDASeq)
+library(RUVSeq)
+library(edgeR)
+library(multiGSEA)
+library(AnnotationDbi)
+library(org.Rn.eg.db)
+library(SingleCellExperiment)
+library(iSEE)
+library(ggplot2)
+library(RColorBrewer)
+library(data.table)
+library(msigdbr)
+library(ggrepel)
+library(dplyr)
+```
+
+# Hilfsfunktionen
+
+## `save_base()`
+
+Wrapper, der einen Graphics- oder ComplexHeatmap-Ausdruck in eine
+PNG/PDF-Datei zeichnet und das geöffnete Dok wieder schließt.
+`on.exit(dev.off())` schließt das Device auch bei Fehlern; `force(expr)`
+ist nötig, weil R Argumente erst spät auswertet (sonst bliebe die Datei
+leer). (ggplot-Objekte werden separat über `ggsave()` gespeichert.)
+
+```{r save-base}
+fig_dir <- "../output"
+dir.create(fig_dir, recursive = TRUE, showWarnings = FALSE)
+
+save_base <- function(name, expr, w = 5, h = 3, res = 150, dev = c("png", "pdf")) {
+  dev  <- match.arg(dev)
+  file <- file.path(fig_dir, paste0(name, ".", dev))
+  if (dev == "png") png(file, width = w, height = h, units = "in", res = res)
+  else              pdf(file, width = w, height = h)
+  on.exit(dev.off())
+  force(expr)
+}
+```
+
+## `report_res()`
+
+Druckt ein `DESeqResults`-Objekt inkl. Metadaten: getesteter Kontrast
+und Test-Typ aus `mcols(res)$description`, das Design, `summary()`, die
+Zahl signifikanter Gene (hoch/runterreguliert), die Top-Treffer und
+optional auch gezielt ausgewählte Gene.
+
+```{r report-res}
+report_res <- function(res, dds = NULL, alpha = 0.05, n = 10, genes = NULL,
+                       label = deparse(substitute(res))) {
+  bar <- function() cat(strrep("=", 70), "\n")
+  bar(); cat("DESeq2-Ergebnis:", label, "\n"); bar()
+
+  cat("\n[1] mcols(res)$description:\n\n")
+  print(data.frame(column = names(res), description = mcols(res)$description), right = FALSE)
+
+  if (!is.null(dds)) {
+    cat("\n[2] design(dds):      ", paste(deparse(design(dds)), collapse = ""), "\n")
+    cat(    "    resultsNames(dds):", paste(resultsNames(dds), collapse = " | "), "\n")
+  }
+
+  cat("\n[3] summary(res, alpha =", alpha, "):\n")
+  summary(res, alpha = alpha)
+
+  sig <- which(!is.na(res$padj) & res$padj < alpha)
+  cat(sprintf("\n[4] Signifikant (padj < %g): %d   [hoch: %d | runter: %d]\n",
+              alpha, length(sig),
+              sum(res$log2FoldChange[sig] > 0), sum(res$log2FoldChange[sig] < 0)))
+
+  cat(sprintf("\n[5] Top %d nach padj:\n", n))
+  print(head(as.data.frame(res[order(res$padj), ]), n))
+
+  if (!is.null(genes)) {
+    cat("\n[6] Ausgewaehlte Gene:\n")
+    print(as.data.frame(res[rownames(res) %in% genes, , drop = FALSE]))
+  }
+  invisible(res)
+}
+```
+
+# Daten einlesen
+
+Liest die Galaxy-Count-Matrix (Genes in Zeilen, Samples in Spalten),
+wandelt sie in eine Integer-Matrix (Voraussetzung für die Zählmodelle),
+benennt die SRR-Run-IDs in GSM-Proben-IDs (nach vorher angefertigter
+Tabelle) um, ordnet die Spalten als 4× Kontrolle / 4× behandelt und legt
+die `colData` mit der Kovariate `condition` an. Die Faktorstufen sind
+`c("control","treated")`, also Kontrolle als Referenz (logFC =
+behandelt/Kontrolle).
+
+```{r read-counts}
+counts <- read.delim("../data/galaxy_featurecounts.tabular", row.names = 1, check.names = FALSE)
+dim(counts)
+counts <- as.matrix(counts)
+mode(counts) <- "integer"
+
+srr_to_gsm <- c(
+  SRR11025990 = "GSM4283627", 
+  SRR11025989 = "GSM4283626",
+  SRR11025988 = "GSM4283625", 
+  SRR11025987 = "GSM4283624",
+  SRR11025986 = "GSM4283623", 
+  SRR11025985 = "GSM4283622",
+  SRR11025984 = "GSM4283621", 
+  SRR11025983 = "GSM4283620"
+)
+colnames(counts) <- srr_to_gsm[colnames(counts)]
+
+sample_order <- c("GSM4283620","GSM4283621","GSM4283622","GSM4283623",
+                  "GSM4283624","GSM4283625","GSM4283626","GSM4283627")
+counts <- counts[, sample_order]
+
+coldata <- data.frame(
+  condition = factor(c(rep("control", 4), rep("treated", 4)),
+                     levels = c("control","treated")),
+  row.names = colnames(counts)
+)
+```
+
+# A) Explorative Analyse & QualityControl
+
+Folgt der Carpentries-Lektion *04-exploratory-qc*: testet, ob die Daten
+clean sind und ob sich Kontrolle und Behandlung überhaupt trennen, bevor
+statistisch getestet wird.
+
+## SummarizedExperiment + Filtern
+
+Baut das zentrale Datenobjekt (Counts + `colData` in einem Container)
+und entfernt Gene mit 5 oder weniger Gesamt-Counts über alle Proben.
+
+```{r a1-se}
+experiment <- SummarizedExperiment(assays = list(counts = counts), colData = coldata)
+nrow(experiment)
+experiment <- experiment[rowSums(assay(experiment, "counts")) > 5, ]
+nrow(experiment)
+experiment$libSize <- colSums(assay(experiment))
+```
+
+## Bibliotheksgröße
+
+Balkendiagramm der Gesamt-Counts pro Probe, first view auf Unterschiede
+in der Sequenziertiefe.
+
+```{r a2-libsize}
+colData(experiment) |>
+  as.data.frame() |>
+  ggplot(aes(x = rownames(colData(experiment)), y = libSize / 1e6, fill = condition)) +
+  geom_bar(stat = "identity") + theme_bw() +
+  labs(x = "Sample", y = "Total count in millions") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1))
+ggsave(file.path(fig_dir, "01_library_size.png"), width = 8, height = 5, dpi = 300)
+```
+
+Plot: Gesamt-Read-Counts pro Probe, range von ca 31mio (GSM4283621) bis
+ca. 58 Mio (GSM4283625); also Faktor 2 Unterschied maximal. Kontrollen
+(rot) und Treatments (türkis) liegen gemischt im ähnlichen Bereichen;
+die Treatments sind im Mittel minimal höher, aber mit klarer
+Überlappung.\
+Interpretation: Ein 2-facher Unterschied in der Sequenziertiefe ist für
+RNA-seq anscheinend normal und ein guter Grund, warum hier normalisiert
+wehrden muss.
+
+## Size factors
+
+`DESeqDataSet` + `estimateSizeFactors()`: Normalisierungsfaktor pro
+Probe, der libsize und RNA-Komposition ausgleicht (Median-of-ratios).
+Der Plot prüft, ob die Size factors systematisch mit der
+Bibliotheksgröße oder der Gruppe zusammenhängen.
+
+```{r a3-sizefactors}
+dds <- DESeq2::DESeqDataSet(experiment, design = ~ condition)
+dds <- estimateSizeFactors(dds)
+
+ggplot(data.frame(libSize = colSums(assay(dds)),
+                  sizeFactor = sizeFactors(dds),
+                  condition = dds$condition),
+       aes(x = libSize, y = sizeFactor, col = condition)) +
+  geom_point(size = 5) + theme_bw() + labs(x = "Library size", y = "Size factor")
+ggsave(file.path(fig_dir, "02_sizefactor_vs_librarysize.png"), width = 7, height = 5, dpi = 150)
+```
+
+Plot: Die DESeq2-Size-factors (Median-of-ratios-Normalisierung) reichen
+von ca 0.7 bis ca 1.3 und steigen linear mit der Bibliotheksgröße. Eine
+Kontrolle bei 3e+07 Mio hat den kleinsten Faktor (ca. 0.7), die größten
+Bibliotheken die größten Faktoren.\
+Interpretation: Der Size factor ist der pro-Probe-Skalierungsfaktor, der
+Tiefe und RNA-Komposition ausgleicht. Dass er monoton mit der
+Bibliotheksgröße läuft zeigt, dass die Tiefe der Hauptunterschied ist
+und keine starke Kompositions-Verzerrung dazwischenfunkt, sonst läge ein
+Punkt deutlich neben der Geraden. Die Size Factors liegen recht eng um 1
+, das heißt, die Normalisierung muss nicht dramatisch korrigieren.
+Kontrolle und Behandlung sind über den ganzen Bereich gemischt, also
+kein gruppenspezifischer Normalisierungs-Bias...
+
+## Varianzstabilisierung (VST)
+
+Rohe Counts zeigen eine Mittelwert-Varianz-Abhängigkeit. Die VST
+entkoppelt beides, damit distanz- und PCA-basierte Methoden nicht von
+wenigen hoch-exprimierten Genen dominiert werden. `meanSdPlot()` zeigt
+vorher (steigend) gegen nachher (flach).
+
+```{r a4-vst}
+meanSdPlot(assay(dds), ranks = FALSE)
+save_base("03_meanSd_raw", meanSdPlot(assay(dds), ranks = FALSE), w = 6, h = 5)
+
+vsd <- DESeq2::vst(dds, blind = TRUE)
+meanSdPlot(assay(vsd), ranks = FALSE)
+save_base("04_meanSd_vst", meanSdPlot(assay(vsd), ranks = FALSE), w = 6, h = 5)
+```
+
+Plot 03_meanSD_raw: Auf den Größenfaktor-normalisierten, aber
+untransformierten Counts steigt die Standardabweichung linear mit dem
+Mittelwert -\> bekannte Mittelwert-Varianz-Abhängigkeit von CountData:
+hoch exprimierte Gene streuen in absoluten Zahlen viel stärker als
+weniger stark exprimierte. Die folgende Varianzstabilisierung (DESeq2)
+verhindert somit, dass ein paar wenige hoch-exprimierte Gene die gesamte
+Analyse dominieren.
+
+Plot 04_meanSd_vst: Nachd er Varianzstabilisierung ist die rote
+Trendlinie flach über den ges. Wertebereich -\>
+Stabilisierungstransformation hat funktioniert, Varianz ist jetzt
+unanhängig vom Expressionsniveau aka jedes Gen trägt ca. gleich viel zur
+Distanz bei.\
+je höher sd, desto höher die Variabilität des Gens.
+
+## Distanz-Heatmap + Clustering
+
+Euklidische Distanz zwischen allen Probenpaaren auf den VST-Werten, als
+Heatmap mit hierarchischem Clustering. Erwartung: Kontrollen clustern
+zusammen, Treatments clustern auch zusammen.
+
+```{r a5-distheatmap}
+dst    <- dist(t(assay(vsd)))
+colors <- colorRampPalette(brewer.pal(9, "Blues"))(255)
+ht_dist <- ComplexHeatmap::Heatmap(
+  as.matrix(dst), col = colors, name = "Euclidean\ndistance",
+  cluster_rows = hclust(dst), cluster_columns = hclust(dst),
+  bottom_annotation = columnAnnotation(
+    condition = vsd$condition,
+    col = list(condition = c(control = "yellow", treated = "purple")))
+)
+save_base("05_sample_distance_heatmap", ComplexHeatmap::draw(ht_dist), w = 6.5, h = 6)
+ht_dist
+```
+
+Heatmap: Das Dendrogramm gruppiert grob: {GSM4283621, 4283622, 4283623}
+(drei Kontrollen) zusammen, {4283625, 4283624, 4283627} (drei
+Behandelte) zusammen — und dann GSM4283620 (Kontrolle) und GSM4283626
+(Behandelt) als auffälliges Paar abseits ihrer jeweiligen Gruppe. Sechs
+von acht Proben clustern erwartet nach Bedingung, das stützt einen
+echten Behandlungseffekt. Aber zwei Proben (eine pro Gruppe) brechen aus
+dem erwarteten Muster aus und ähneln einander lt eukl. Distanz mehr als
+ihren Gruppen.\
+Wie damit umgehen? Dass die Distanz über alle Gene weniger sauber trennt
+als PCA (Plot 06), ist wohl erwartbar: Die paarweise Distanz summiert
+über alle Gene, also auch über die technische/unerwünschte Variation,
+die RUV in Block B gezielt entfernen soll. Die PCA kann die
+„Behandlungsrichtung" isolieren, die rohe Distanz nicht.
+
+## PCA
+
+Hauptkomponentenanalyse als Dimensionsreduktion: projeziert die Proben
+in die Ebene der größten Varianz. Trennen sich die Gruppen entlang PC1,
+ist der Behandlungseffekt die dominante Varianzquelle.
+
+```{r a6-pca}
+pcaData    <- DESeq2::plotPCA(vsd, intgroup = "condition", returnData = TRUE)
+percentVar <- round(100 * attr(pcaData, "percentVar"))
+ggplot(pcaData, aes(x = PC1, y = PC2)) +
+  geom_point(aes(color = condition), size = 5) + theme_minimal() +
+  xlab(paste0("PC1: ", percentVar[1], "% variance")) +
+  ylab(paste0("PC2: ", percentVar[2], "% variance")) + coord_fixed()
+ggsave(file.path(fig_dir, "06_pca_vst.png"), width = 6, height = 6, dpi = 150)
+```
+
+PCA-Plot: Alle vier Kontrollen liegen bei negativer PC1, alle vier
+Behandelten bei positiver PC1 -\>Trennung entlang PC1, ohne Überlappung\
+Tetracyclin-Treatment ist demnach als trennende Achse anzusehen, weil
+PC1 die Linearkombination findet, die den Gruppenunterschied maximiert.\
+Einschränkung: PC1 erklärt nur 24 % der Varianz. Die Trennung ist
+demnach real, aber der Behandlungseffekt ist nicht die dominante
+Varianzquelle, denn es gibt gleich viel Struktur auf PC2 (ebenfalls 24
+%), die nicht der Behandlung entspricht..\
+-\> Echter Effekt, morderate Stärke, nennenswerte (unerklärte)
+Restvarianz macht ruv-Korrektur durchaus sinnvoll
+
+## Dispersionsschätzung
+
+DESeq2 modelliert Counts negativ-binomial; die Dispersion beschreibt die
+Überstreuung pro Gen. `estimateDispersions()` leiht Information über
+Gene aus (Shrinkage zur Trendkurve), was bei wenigen Replikaten
+stabilere Schätzungen liefert.
+
+```{r a7-dispersion}
+dds_eD <- estimateDispersions(dds)
+plotDispEsts(dds_eD)
+save_base("07_dispersion_estimates", plotDispEsts(dds_eD), w = 7, h = 5)
+```
+
+Plot Dispersionsschätzung: schwarz: gen-weise Rohschätzungen, blau:
+finale Schätzung, rot: Trendkurve\
+Dispersionskurve fällt mit steigendem Mittelwert und flacht dann bei
+hohen Counts wieder abn. Rohschätzungen werden zur roten Trendkurve hin
+geschrumpft.\
+Die Shrinkage ist der Grund, warum DESeq2 mit so wenigen Replikaten
+funktioniert: Sie leiht Information über Gene aus und stabilisiert
+verrauschte Einzelschätzungen. Die Form (fallend, dann flach) war
+erwartbar.\
+Cave! Das Band bei 1e-8 sind Gene mit quasi-null geschätzter Dispersion
+(oft niedrig- oder nahezu konstant exprimierte Gene); DESeq2 behandelt
+sie hier korrekt, und sie werden durch die unabhängige Filterung später
+ohnehin meist aussortiert.
+
+## Differentielle Expression (Wald-Test)
+
+Erste, noch unkorrigierte DE: GLM-Fit und Wald-Test auf den Kontrast
+behandelt gegen Kontrolle. Die RUV-korrigierte DE folgt in Block B.
+
+```{r a8-wald}
+dds_eD <- nbinomWaldTest(dds_eD)
+result <- results(dds_eD, contrast = c("condition", "treated", "control"))
+summary(result)
+```
+
+## Volcano-Plot
+
+Stellt log2-Fold-Change gegen die Signifikanz dar und markiert
+hoch-/herunterregulierte Gene.
+
+```{r a9-volcano}
+res_df <- as.data.frame(result)
+res_df$gene <- rownames(res_df)
+res_df <- res_df[!is.na(res_df$padj), ]
+
+top <- head(res_df[order(res_df$padj), ], 25)
+
+padj_cut <- 0.05
+lfc_cut  <- 1
+res_df$sig <- "n.s."
+res_df$sig[res_df$padj < padj_cut & res_df$log2FoldChange >  lfc_cut] <- "up"
+res_df$sig[res_df$padj < padj_cut & res_df$log2FoldChange < -lfc_cut] <- "down"
+
+ggplot(res_df, aes(x = log2FoldChange, y = -log10(padj), color = sig)) +
+  geom_point(alpha = 0.6, size = 1.5) +
+  scale_color_manual(values = c(up = "firebrick", down = "steelblue", "n.s." = "grey70")) +
+  geom_vline(xintercept = c(-lfc_cut, lfc_cut), linetype = "dashed", color = "grey40") +
+  geom_hline(yintercept = -log10(padj_cut), linetype = "dashed", color = "grey40") +
+  theme_bw() +
+  labs(x = "log2 fold change (treated / control)",
+       y = "-log10(adjusted p-value)", color = NULL)
+ggsave(file.path(fig_dir, "08_volcano.png"), width = 8, height = 6, dpi = 150)
+```
+
+zu sehen: Die unkorrigierte DE aus Block A (treated/Kontrolle, ohne
+RUV). Schwellen: \|log2FC\| \> 1 und padj \< 0.05. Es passieren nur
+wenige Gene die Schwellen, etwas mehr als 15 hoch (rot, rechts) und ca.
+10 herunter (blau, links). Die überwältigende Mehrheit ist grau (n.s.)\
+Interpretation:
+
+1.  Signifikanz ungleich Effektstärke. Das statistisch sicherste Gen hat
+    eine winzige Faltung, ist aber extrem hoch und konsistent
+    exprimiert. Ein Doppelkriterium aus p-Wert und Fold-Change filtert
+    solche Gene bewusst heraus. Das ist sicherlich sinnvoll, wenn man
+    biologisch relevante Größenordnungen will, aber man muss wissen,
+    dass man dabei hochsignifikante, klein-faltige Gene verwirft
+2.  Mehr rot als blau: schon naiv deutet sich die Assymetrie zugunsten
+    der Hochregulation an.
+
+Achtung! Hier noch keine ruv-Korrektur. Plot ist eher als Referenz zu
+verstehen und noch nicht belastbar. Die geringe Anzahl an Treffern deckt
+sich mit dem nach PCA moderaten Effeklt: kleine Änderungen statt großer
+switches.
+
+## Heatmap der Top-20-DE-Gene
+
+Die 20 nach p-Wert stärksten DE-Gene als zeilenweise z-skalierte
+Heatmap; Spaltenannotation = Gruppe.
+
+```{r a10-top20}
+vsd <- vst(dds_eD, blind = TRUE)
+genes <- result[order(result$pvalue), ] |> head(20) |> rownames()
+heatmapData <- assay(vsd)[genes, ]
+heatmapData <- t(scale(t(heatmapData)))
+
+heatmapColAnnot <- HeatmapAnnotation(
+  condition = vsd$condition,
+  col = list(condition = c(control = "yellow", treated = "lightgreen")))
+
+ht_top20 <- ComplexHeatmap::Heatmap(
+  heatmapData, name = "row z-score", top_annotation = heatmapColAnnot,
+  cluster_rows = TRUE, cluster_columns = FALSE, column_names_gp = gpar(fontsize = 9))
+save_base("09_top20_DE_heatmap", ComplexHeatmap::draw(ht_top20), w = 8, h = 7)
+ht_top20
+```
+
+Plot: Zeilenweise z-skalierte Expression der 20 nach p-Wert stärksten
+Gene. Klare Block-Trennung: die linken vier (Kontrollen,
+GSM4283620–...23) sind überwiegend blau (niedrig), die rechten vier
+(Behandelte, 4283624–27) überwiegend rot (hoch). Drei Gene oben
+(ENSRNOG00000061005, 021663, 000201) zeigen das umgekehrte Muster (in
+Kontrollen hoch, in treatment herunter). Sauber Trennung nach diesem
+Plot!
+
+Einschränkung: Hier werden die Top 20 Gene betrachtet. Plot ist also
+nicht repräsentativ für die Gesamtheit der Daten!
+
+# B) Unerwünschte Variation entfernen (RUVSeq)
+
+Folgt der RUVSeq-Vignette (Risso et al. 2014). RUV schätzt latente
+Störfaktoren (Batch, Library-Prep, unbekannte technische Effekte) als
+zusätzliche Kovariaten und nimmt sie ins DE-Modell auf. Der korrigierte
+Output `res_ruv` ist später der Input für multiGSEA. Es gibt drei
+Varianten: RUVg (Kontrollgene), RUVs (Replikate), RUVr (Residuen);
+Hauptweg hier ist RUVg.
+
+## Filtern & SeqExpressionSet
+
+Eigener Filter (≥ 2 Proben mit \> 5 Reads) und Verpacken in ein
+`SeqExpressionSet` (Datenobjekt von EDASeq/RUVSeq). `x` ist der
+Behandlungsfaktor.
+
+```{r b1-filter}
+filter   <- apply(counts, 1, function(x) length(x[x > 5]) >= 2)
+filtered <- counts[filter, ]
+genes    <- rownames(filtered)
+
+x   <- as.factor(c(rep("Ctl", 4), rep("Trt", 4)))
+set <- newSeqExpressionSet(as.matrix(filtered),
+                           phenoData = data.frame(x, row.names = colnames(filtered)))
+```
+
+## RLE + PCA vor Normalisierung
+
+RLE-Boxplots (Relative Log Expression) sollten um 0 zentriert und gleich
+breit sein; Abweichungen zeigen technische Verzerrung. Zusammen mit PCA
+der Ausgangszustand vor jeder Korrektur.
+
+```{r b2-rle-raw}
+colors <- brewer.pal(3, "Set2")
+plotRLE(set, outline = FALSE, ylim = c(-0.75, 0.75), col = colors[x])
+save_base("10_RLE_raw", plotRLE(set, outline = FALSE, ylim = c(-0.75, 0.75), col = colors[x]), w = 7, h = 4.5)
+plotPCA(set, col = colors[x], cex = 1.2)
+save_base("11_PCA_raw", plotPCA(set, col = colors[x], cex = 1.2), w = 6, h = 6)
+```
+
+Boxplot_raw: Mediane wandern auf und ab, starke Strueung um 0,
+variierende Boxbreiten; Grundlage f+r technische ruv-Korrekturschritte
+
+PCA_raw: Eine einzelne Achse (PC1) erklärt 46 % der Varianz, aber die
+Gruppen trennen sich nicht sauber entlang dieser Achse: Kontrollen
+(grün) und Treatments (orange) liegen durchmischt; die dominante Achse
+fängt hier offensichtlich etwas anderes als die Behandlung ein.
+
+## Upper-Quartile-Normalisierung
+
+`betweenLaneNormalization(..., "upper")` skaliert die Proben aufs obere
+Quartil (Bullard et al. 2010). Hier sehr notwendig, denn in den Rohdaten
+gibt es eine große, aber uninformative Varianzquelle (sehr
+wahrscheinlich Tiefe/Komposition/technischer Batch), die alles andere
+überlagert. Die Behandlung ist da, aber unter dieser dominanten Achse
+begraben. Eine hohe PC1-Prozentzahl ist nicht automatisch gut. Hier ist
+sie sogar das Problem, weil PC1 stark zu rauschen scheint. Genau das
+soll die Normalisierung + RUV reduzieren:
+
+```{r b3-uqnorm}
+set <- betweenLaneNormalization(set, which = "upper")
+plotRLE(set, outline = FALSE, ylim = c(-0.75, 0.75), col = colors[x])
+save_base("12_RLE_uqnorm", plotRLE(set, outline = FALSE, ylim = c(-0.75, 0.75), col = colors[x]), w = 7, h = 4.5)
+plotPCA(set, col = colors[x], cex = 1.2)
+save_base("13_PCA_uqnorm", plotPCA(set, col = colors[x], cex = 1.2), w = 6, h = 6)
+```
+
+Boxplot: Die Boxen sind jetzt um 0 zentriert und untereinander deutlich
+gleichmäßiger als im Rohzustand. UP-Normalisierung wirksam, aber sie
+korrigiert nur eine globale Skala pro Probe. Sie kann keine
+strukturierte, genabhängige unerwünschte Variation (z. B. einen Batch,
+der bestimmte Genklassen betrifft) entfernen. Dafür ist RUV da
+
+PCA: Die dominante Achse ist von 46 % (roh) auf 19 % geschrumpft. Die
+Behandlung beginnt sich abzuzeichnen. Kontrollen tendenziell oben
+(positiver PC2), Treatments unten. Trennung ist noch unsauber und
+verteilt sich über beide Achsen...
+
+## Empirische Kontrollgene
+
+RUVg braucht Negativkontroll-Gene, die nicht auf die Behandlung
+reagieren. Ein erster edgeR-Lauf rankt alle Gene nach
+Behandlungs-Assoziation; die am wenigsten assoziierten (alles außer den
+Top 5000) dienen als empirische Kontrollgene. Das reine rn6-Genom
+enthält keine ERCC-Spike-ins (wie im Tutorial beschrieben), daher hier
+dieser empirische Weg.
+
+```{r b4-empirical}
+design <- model.matrix(~x, data = pData(set))
+y <- DGEList(counts = counts(set), group = x)
+y <- normLibSizes(y, method = "upperquartile")
+y <- estimateGLMCommonDisp(y, design)
+y <- estimateGLMTagwiseDisp(y, design)
+fit <- glmFit(y, design)
+lrt <- glmLRT(fit, coef = 2)
+
+top       <- topTags(lrt, n = nrow(set))$table
+empirical <- rownames(set)[which(!(rownames(set) %in% rownames(top)[1:5000]))]
+```
+
+## RUVg
+
+`RUVg(set, empirical, k = 1)` schätzt aus den Kontrollgenen einen Faktor
+unerwünschter Variation `W_1` und fügt ihn der `pData` hinzu. `k = 1`
+ist bei n = 8 konservativ.
+
+```{r b5-ruvg}
+set2 <- RUVg(set, empirical, k = 1)
+pData(set2)
+plotRLE(set2, outline = FALSE, ylim = c(-0.75, 0.75), col = colors[x])
+save_base("14_RLE_RUVg", plotRLE(set2, outline = FALSE, ylim = c(-0.75, 0.75), col = colors[x]), w = 7, h = 4.5)
+plotPCA(set2, col = colors[x], cex = 1.2)
+save_base("15_PCA_RUVg", plotPCA(set2, col = colors[x], cex = 1.2), w = 6, h = 6)
+```
+
+Boxplot_ruv: Boxen eng um 0, homogen, der am besten zentrierte,
+gleichmäßigste der drei RLE-Plots. RUVg hat zusätzlich zur globalen
+Skala den geschätzten Störfaktor `W_1` herauspartialisiert; die
+verbleibende Streuung ist relativ sauber zentriert. Eigentlicher Gewinn
+von ruvg wird aber optisch erst in der PCA sichtbar.\
+PCA_ruv: Saubere Gruppentrennung entlang PC1 mit 22%. Nach Entfernen von
+`W_1` wird die Behandlung zur interpretierbaren Hauptachse. Der
+Vergleich roh → UQ → RUVg (PC1 46 % unsauber → 19 % beginnend → 22 %
+sauber trennend) zeigt: Es geht nicht unbedingt um ein hohes
+PC1-Prozent, sondern darum, dass PC1 auch korrekt nach Gruppen entlang
+der Achse zu trennen vermag.
+
+Wahl von k: mit **k=2 trennt die PCA noch sauberer**, aber mMn wirkt der
+Effekt dann etwas künstlich und konstruiert..
+
+**Vorbehalte:**
+
+- Mangels ERCC-Spike-ins wurden Kontrollgene als „alle Gene außer den
+  Top 5000 des ersten edgeR-Laufs" definiert. Bei ca 15500 Genen also
+  ein sehr großes, datengetriebenes Set. Das ist der vorgesehene
+  RUVSeq-Weg, aber es ist halb-zirkulär: Man benutzt die Daten selbst,
+  um zu entscheiden, was in der Expression unverändert bleibt. Echte
+  externe Negativkontrollen wären sauberer. Praktisch ist der Effekt
+  meist gutartig (Risso et al. zeigen Robustheit), aber man sollte sich
+  der Annahme bewusst sein.
+
+- **`W_1`** RUV? Es ist unklar `W_1` Batch, RNA-Qualität oder etwas
+  anderes ist. Das ist akzeptabel (RUV soll latente Störung ja
+  entfernen, nicht benennen), aber es heißt auch, dass man die Korrektur
+  nicht mechanistisch begründen kann.
+
+## DE mit edgeR inkl. `W_1`
+
+edgeR-DE mit dem erweiterten Design `~ x + W_1`: testet den
+Behandlungseffekt, während `W_1` die geschätzte Störung
+herauspartialisiert. `coef = 2` ist der `x`-Effekt (Trt vs Ctl).
+
+```{r b6-edger-ruv}
+design <- model.matrix(~x + W_1, data = pData(set2))
+y <- DGEList(counts = counts(set2), group = x)
+y <- calcNormFactors(y, method = "upperquartile")
+y <- estimateGLMCommonDisp(y, design)
+y <- estimateGLMTagwiseDisp(y, design)
+fit <- glmFit(y, design)
+lrt <- glmLRT(fit, coef = 2)
+topTags(lrt)
+```
+
+- edgeRs Top-Liste sieht anders aus als die von DESeq2: edgeR rankt hier
+  vor allem niedrig exprimierte Gene mit großen Fold-Changes (logCPM
+  negativ, \|logFC\| 3–4) nach oben. DESeq2 rankt hoch exprimierte Gene
+  mit moderaten Fold-Changes (wie ENS...030700) nach oben.
+- -\> Folge unterschiedlicher Gewichtung/Shrinkage der beiden Engines
+  (edgeR-LRT vs. DESeq2-Wald, unterschiedliche unabhängige Filterung).
+  Beide sehen dasselbe Gesamtsignal, betonen aber andere Enden des
+  Expressionsspektrums.
+- ENSRNOG00000011200 taucht in beiden Listen ganz oben auf, DESeq2
+  (log2FC 1.06, padj 2e-11) und edgeR (logFC 1.06, FDR 8e-8), dazu hoch
+  exprimiert (logCPM 11.96). Gen taucht in beiden Verfahren auf -\>
+  vertrauenswürdiger Treffer
+
+## DE mit DESeq2 inkl. `W_1` — Wald und LRT
+
+Dieselbe RUV-korrigierte DE mit DESeq2; `W_1` steht im Design des
+`DESeqDataSet` (`~ W_1 + x`). Es werden zwei Tests mit eigenen Objekten
+gerechnet: Wald (Effektgröße eines Kontrasts, Input fürs Enrichment) und
+LRT (volles gegen reduziertes Modell). `report_res()` zeigt für beide
+den Test-Typ und den getesteten Kontrast.
+
+```{r b7-deseq-ruv}
+dds_ruv <- DESeqDataSetFromMatrix(countData = counts(set2),
+                                  colData = pData(set2),
+                                  design = ~ W_1 + x)
+
+dds_ruv      <- DESeq(dds_ruv)
+res_ruv_wald <- results(dds_ruv, contrast = c("x", "Trt", "Ctl"))
+report_res(res_ruv_wald, dds_ruv)
+
+dds_ruv_lrt <- DESeq(dds_ruv, test = "LRT", reduced = ~ W_1)
+res_ruv_lrt <- results(dds_ruv_lrt)
+report_res(res_ruv_lrt, dds_ruv_lrt)
+
+res_ruv <- res_ruv_wald
+res_ruv <- res_ruv[order(res_ruv$padj), ]
+```
+
+**Interpretation der Results:**
+
+- Wald =+/- LRT. Beide liefern fast identische Ergebnisse und exakt
+  dieselben Top-10-Gene in nahezu gleicher Reihenfolge. -\> Das Ergebnis
+  hängt nicht an der Testwahl. (Der Wald-Test prüft die Effektgröße
+  eines Kontrasts, der LRT vergleicht das volle Modell `~ W_1 + x` gegen
+  `~ W_1`. Dass beide übereinstimmen, heißt, der `x`-Effekt ist
+  konsistent.)
+
+- Asymmetrie 163:76 ≈ 2:1 zugunsten der Hochregulation.Passt zu den
+  späteren Enrichment-Befunden
+
+- Gen ENSRNOG00000030700: baseMean = 344.900 (extrem hoch exprimiert),
+  log2FC nur 0.46, padj = 4e-13. ...Winzige Faltung, aber durch die
+  enorme, konsistente Expression hochsignifikant. Eine moderate, sehr
+  verlässliche Verschiebung eines stark exprimierten (vermutlich
+  metabolischen) Leber-Gens. Kein Switch.
+
+- Die unabhängige Filterung verwirft \~10–12 % schwach exprimierte Gene
+  (mean count \< 10–12), bevor korrigiert wird. Sinnvoll, weil solche
+  Gene ohnehin keine verlässlichen p-Werte liefern.
+
+- Kritisch: 239 von 15.6k Genen (ca 1.5 %) sind signifikant. Sehr
+  moderate DE-Antwort, konsistent mit dem moderaten PCA-Effekt. Das ist
+  nicht unbedingt widersprüchlich und kein Problem; es heißt aber, dass
+  Tetracyclin in dieser Leber kein flächendeckendes
+  Transkriptom-"Erdbeben" auslöst.
+
+## mtDNA-Gen-Check
+
+Die mtDNA-kodierten OXPHOS-Gene sind der direkte Wirkort von
+Tetracyclin. Dieser Check zählt, wie viele davon in den Daten sind und
+Filter sowie DESeq überleben, und gibt ihre Einzeleffekte aus.
+
+```{r b8-mtdna}
+ann_mt <- AnnotationDbi::select(org.Rn.eg.db, keys = rownames(counts),
+                                keytype = "ENSEMBL", columns = c("SYMBOL","CHR"))
+mt_in_data <- unique(na.omit(ann_mt$ENSEMBL[which(ann_mt$CHR == "MT")]))
+
+cat(sprintf("MT-Gene | Roh: %d | nach Filter: %d | in res_ruv: %d\n",
+            length(mt_in_data),
+            sum(mt_in_data %in% rownames(filtered)),
+            sum(mt_in_data %in% rownames(res_ruv))))
+report_res(res_ruv_wald, dds_ruv, genes = mt_in_data)
+```
+
+## Alternativen: RUVs + RUVr
+
+RUVs nutzt Replikat-Gruppen (über `makeGroups`), bei denen die Kovariate
+konstant ist; RUVr nutzt die Residuen eines ersten GLM-Fits. Beide
+schätzen `W_1` auf anderem Weg als RUVg.
+
+```{r b9-ruvs-ruvr}
+differences <- makeGroups(x)
+set3 <- RUVs(set, genes, k = 1, differences)
+pData(set3)
+
+design <- model.matrix(~x, data = pData(set))
+y <- DGEList(counts = counts(set), group = x)
+y <- calcNormFactors(y, method = "upperquartile")
+y <- estimateGLMCommonDisp(y, design)
+y <- estimateGLMTagwiseDisp(y, design)
+fit <- glmFit(y, design)
+res <- residuals(fit, type = "deviance")
+set4 <- RUVr(set, genes, k = 1, res)
+pData(set4)
+```
+
+# C · Pathway-Enrichment (multiGSEA)
+
+Folgt der multiGSEA-Vignette (Canzler et Hackermüller 2020). multiGSEA
+ist eine rangbasierte GSEA (intern fgsea) über mehrere Omics-Ebenen.
+Hier dargestellt ist nur eine (Transcriptom-Ebene). Input ist die
+RUV-korrigierte DE aus Block B.
+
+## Annotation: Symbole
+
+multiGSEA erwartet je Gen ein Symbol, einen logFC und einen p-Wert. Die
+Ensembl-IDs aus `res_ruv` werden über `org.Rn.eg.db` auf Symbole
+gemappt; Gene ohne Symbol und Duplikate werden entfernt.
+
+```{r c1-annotation}
+de <- as.data.frame(res_ruv)
+de$ENSEMBL <- rownames(de)
+de <- de[!is.na(de$pvalue), ]
+
+de$Symbol <- mapIds(org.Rn.eg.db, keys = de$ENSEMBL,
+                    column = "SYMBOL", keytype = "ENSEMBL", multiVals = "first")
+de <- de[!is.na(de$Symbol) & !duplicated(de$Symbol), ]
+
+transcriptome <- data.frame(Symbol = de$Symbol, logFC = de$log2FoldChange, pValue = de$pvalue)
+```
+
+## Ranking
+
+`rankFeatures(logFC, pValue)` erzeugt die Rangstatistik
+`sign(logFC) * -log10(p)`: starke, signifikante Hoch-Effekte landen
+oben, starke Runter-Effekte unten. Die Ranks werden mit den Symbolen
+benannt und in die multiGSEA-Datenstruktur gelegt.
+
+```{r c2-rank}
+omics_data <- initOmicsDataStructure(layer = c("transcriptome"))
+omics_data$transcriptome <- rankFeatures(transcriptome$logFC, transcriptome$pValue)
+names(omics_data$transcriptome) <- transcriptome$Symbol
+```
+
+## Pathway-Definitionen laden
+
+`getMultiOmicsFeatures()` zieht die Gen-Sets aus KEGG und Reactome für
+*Rattus norvegicus*, mit Features als Symbol. Kann dauern... (5min ca.)
+
+```{r c3-pathways}
+databases <- c("kegg", "reactome")
+layers    <- names(omics_data)
+pathways <- getMultiOmicsFeatures(
+  dbs = databases, layer = layers,
+  returnTranscriptome = "SYMBOL",
+  organism = "rnorvegicus",
+  useLocal = FALSE
+)
+```
+
+## Enrichment ausführen & speichern
+
+`multiGSEA()` rechnet die fgsea-Anreicherung; `extractPvalues()` zieht
+p- und padj-Werte heraus. Bei nur einer Omics-Ebene ist "combined"
+identisch mit "transcriptome". Diese CSV enthält keine
+Richtungsinformation (kein NES) — die Richtung kommt im nächsten Schritt
+aus dem Objekt selbst.
+
+```{r c4-run}
+enrichment_scores <- multiGSEA(pathways, omics_data)
+
+df <- extractPvalues(enrichment_scores, pathwayNames = names(pathways[[1]]))
+df$combined_pval <- df$transcriptome_pval
+df$combined_padj <- df$transcriptome_padj
+df <- cbind(pathway = names(pathways[[1]]), df)
+df <- df[order(df$combined_padj), ]
+head(df, 15)
+
+write.csv(df, "output/multiGSEA_pathway_results.csv", row.names = FALSE)
+```
+
+## Richtung (NES) + Treibergene
+
+Greift direkt auf das Anreicherungsobjekt zu: das NES-Vorzeichen gibt
+die Richtung (+ hoch, − runter), `leadingEdge` die tragenden Gene. Hier
+nach Tetracyclin-relevanten Themen gefiltert und die
+Vorzeichen-Konvention an zwei bekannten Genen geprüft.
+
+```{r c5-direction}
+res <- enrichment_scores$transcriptome[order(padj)]
+
+res[padj < 0.05, .(pathway, NES, padj, size)]
+
+res[grepl("lipid|fatty acid|oxidative phosphoryl|respiratory electron|mitochondrial translation|ATF4|EIF2|PERK|GCN2|amino acid|cholesterol|TCA|citric",
+          pathway, ignore.case = TRUE), .(pathway, NES, padj)]
+
+res[pathway == "(REACTOME) Metabolism of lipids", leadingEdge][[1]]
+
+transcriptome[transcriptome$Symbol %in% c("Eif4ebp3","Fasn"), ]
+omics_data$transcriptome[c("Eif4ebp3","Fasn")]
+```
+
+## Gegencheck: HALLMARK
+
+Wiederholt die Anreicherung gegen die MSigDB-HALLMARK-Sammlung (50
+kuratierte Sets) als unabhängigen Abgleich. HALLMARK ist
+Ensembl-basiert, daher werden die Ranks hier nach Ensembl benannt. Das
+Ergebnis wird inklusive NES und (zu Text gewandeltem) `leadingEdge` als
+TSV gespeichert — diese Datei trägt also die Richtung.
+
+```{r c6-hallmark}
+hallmark <- msigdbr(species = "Rattus norvegicus", category = "H") %>%
+  dplyr::select(gs_name, ensembl_gene) %>%
+  dplyr::filter(!is.na(ensembl_gene)) %>%
+  unstack(ensembl_gene ~ gs_name)
+pathways_h <- list("transcriptome" = hallmark)
+
+de_ens <- as.data.frame(res_ruv)
+de_ens$ENSEMBL <- rownames(de_ens)
+de_ens <- de_ens[!is.na(de_ens$pvalue) & !duplicated(de_ens$ENSEMBL), ]
+
+ranks_ens <- initOmicsDataStructure("transcriptome")
+ranks_ens$transcriptome <- rankFeatures(de_ens$log2FoldChange, de_ens$pvalue)
+names(ranks_ens$transcriptome) <- de_ens$ENSEMBL
+
+es_h  <- multiGSEA(pathways_h, ranks_ens)
+res_h <- es_h$transcriptome[order(padj)]
+res_h[padj < 0.05, .(pathway, NES, padj, size)]
+
+out <- copy(res_h)
+out$leadingEdge <- sapply(out$leadingEdge, paste, collapse = ";")
+fwrite(out, "output/data_hallmark_multiGSEA_results.tsv", sep = "\t")
+```
+
+# Sitzungsinfo
+
+```{r session}
+sessionInfo()
+```
