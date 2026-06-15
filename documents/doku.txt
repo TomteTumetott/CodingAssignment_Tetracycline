@@ -1,6 +1,0 @@
-
-- Account anlegen in usegalaxy.eu, per Mail bestätigen
-- neue History in galaxy anlegen (tetracycline)
-- SRR-IDs heraussuchen für gegebene samples 3x control, 3x treatment (GSM4283621, GSM4283622, GSM4283623, GSM4283625, GSM4283626, GSM4283627) über ncbi.nlm.nih.gov
-- Zuweisungstabelle anlegen, um später GSM, SRA, SRR einander zuweisen zu können (später in R Arbeit mit GSM-IDs und Bedingung (control vs treatment), galaxy braucht SRR-IDs...)
-- FASTQ-Dateien aus SRA in galaxy laden mit Tool "Download and Extract Reads in FASTQ format from NCBI SRA"; Input der SRR_IDs in Maske (kommagetrennt)-> pro Probe wird eine FASTQ-Datei generiert
