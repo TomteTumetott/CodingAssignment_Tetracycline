@@ -18,9 +18,9 @@ editor_options:
 
 # Galaxy-Workflow
 
-GALAXY-Teil, auf usegalaxy ausgegührt. Ziel ist die Count-Matrix (Gene ×
-Proben), die der R-Teil einliest. Datensatz GSE144219 (GEO), Rattus
-norvegicus, Leber; Referenzgenom Rnor_6.0 (rn6, vgl.
+GALAXY-Teil, auf usegalaxy.eu ausgegührt. Ziel ist die Count-Matrix
+(Gene × Proben), die der R-Teil einliest. Datensatz GSE144219 (GEO),
+Rattus norvegicus, Leber; Referenzgenom Rnor_6.0 (rn6, vgl.
 [https://doi.org/10.1093/toxsci/kfaa026](#0){.uri}). Ablauf:
 Daten-Download, Qualitätskontrolle, Trimming, erneute
 Qualitätskontrolle, Alignment, Annotation und Read-Zählung,
@@ -37,7 +37,7 @@ Vorlage (tw. abgeändert):
 Galaxy-Konto (usegalaxy.eu/) angelegt und per Mail bestätigt, neue
 History "tetracycline" erstellt. Für die ausgewählten Proben (4x
 Kontrolle, 4x Behandlung) die SRR-Run-Accessions über NCBI bestimmt und
-eine Abgleichstabelle (TSV) GSM ↔ SRA ↔ SRR angelegt. Diese Tabelle wird
+eine Abgleichstabelle (TSV) GSM - SRA - SRR angelegt. Diese Tabelle wird
 in R gebraucht, weil dort mit GSM-IDs und Bedingungen (control vs.
 treatment) gearbeitet werden sollte, Galaxy aber die SRR-IDs der
 einzelnen Sequenzierläufe verwendet.
@@ -50,11 +50,11 @@ Proben (GSM ↔ SRR):
   GSM4283627 ↔ SRR11025990
 
 FASTQ-Daten mit dem Tool "Download and Extract Reads in FASTQ format
-from NCBI SRA" geladen (SRR-IDs kommagetrennt in die Maske). Das Tool
+from NCBI SRA" geladen (SRR-IDs kommasepariert in die Maske). Das Tool
 erzeugt je einen Single-End- und einen Paired-End-Output (fastq-dump);
-weiterverwendet wird der Paired-End-Output. Aus den rohen
-fastqsanger-Dateien eine flache Collection angelegt, die einzelnen
-Proben als SRR...\_R1 bzw. SRR...\_R2 benannt.
+weiterverwendet wird der Paired-End-Output. (Single End ist auch leer).
+Aus den rohen fastqsanger-Dateien eine flache Collection angelegt, die
+einzelnen Proben als SRR...\_R1 bzw. SRR...\_R2 benannt.
 
 ## Qualitätskontrolle
 
@@ -64,7 +64,7 @@ Falco-Ergebnis-Collection zu einer Übersicht zusammengefasst. Geprüfte
 Metriken:
 
 - Per base sequence quality: Phred-Score \> 28 gut, \< 20 schlecht
-- Per sequence quality scores: Median möglichst hoch
+- Per sequence quality scores: Median sollte möglichst hoch
 - Per base sequence content: keine starke Verzerrung (z. B. durch
   Adapter)
 - Adapter content: keine Adapter-Sequenzen (sonst ist Trimming nötig
@@ -74,7 +74,8 @@ Metriken:
 ## Trimming
 
 Trimming mit Trimmomatic (Galaxy 0.39+galaxy2) auf den Paired-End-Daten
-(als Collection, nicht der flachen Collection). Parameter:
+(als Collection, nicht der flachen Collection), obwol laut QC nicht
+unbedingt nötig. Parameter:
 
 - ILLUMINACLIP: TruSeq3-PE.fa, Seed-Mismatches 2,
   Palindrome-Clip-Threshold 30, Simple-Clip-Threshold 10,
@@ -96,13 +97,13 @@ Kontrolle, dass das Trimming gegriffen hat.
 
 Alignment mit HISAT2 (v2.2.1, Kim et al., Nature Methods 2015) gegen
 Rnor_6.0 (in der Galaxy-Datenbank hinterlegt), Input ist die getrimmte
-Paired-End-Collection. STAR wäre die übliche Wahl für hochwertiges
-RNA-seq, hier aber bewusst HISAT2 wegen der guten Eignung für kurze
-Reads (ca. 51 bp; Graph-FM-Index mit BW-Transformation) und kürzerer
-Wartezeiten auf den Galaxy-Servern. HISAT2 mit Standardeinstellungen;
-die Strangspezifität wird erst beim Zählen in featureCounts
-berücksichtigt. Sie wurde zuvor als stranded recherchiert: über den
-GEO-Eintrag
+Paired-End-Collection. STAR wäre ansonsten die übliche Wahl für
+hochwertiges RNA-seq, hier aber bewusst HISAT2 wegen der guten Eignung
+für kurze Reads (in diesem Projekt durchschnittlich 51 bp;
+Graph-FM-Index mit BW-Transformation) und kürzerer Wartezeiten auf den
+Galaxy-Servern. HISAT2 mit Standardeinstellungen; die Strangspezifität
+wird erst beim Zählen in featureCounts berücksichtigt. Sie wurde zuvor
+als stranded recherchiert, über den GEO-Eintrag
 (<https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSM4283626>) und
 mit dem Tool Infer Experiment auf der HISAT2-BAM aber als unstranded
 identifiert. Mapping-Zusammenfassung im maschinenlesbaren Format
@@ -125,7 +126,7 @@ Read-Zählung mit featureCounts:
 - Input: HISAT2-BAM-Collection
 - Output-Format: tabular (für limma-voom/edgeR lesbar)
 - Strang: unstranded (TruSeq Stranded mRNA, vgl. NCBI)
-- Paired-End: ja
+- Paired-End: yes
 - Count fragments instead of reads (sonst werden Fragmente mehrfach
   gezählt)
 
@@ -136,14 +137,14 @@ Ergebnis je Probe: Tabelle mit GeneID und Counts.
 Die Einzeltabellen mit "Column Join" zu einer Matrix verbunden
 (Identifier-Spalte 1 = GeneID, 1 Header-Zeile). Die resultierende
 Tabelle heruntergeladen; sie ist der Input für den R-Teil
-(../data/galaxy_featurecounts.tabular). Zusätzlich alle relevanten
-Tabellen, Reports und Webseiten für Dokumentation und Präsentation aus
-Galaxy exportiert.
+(data/galaxy_featurecounts.tabular). Zusätzlich relevante Tabellen,
+Reports und Webseiten für Dokumentation und Präsentation aus Galaxy
+exportiert.
 
 ## weiteres Vorgehen bis goseq
 
 Das Turorial *Reference-based RNA-Seq data analysis* wurde bis zum Ende
-in galaxy umgesetzt, um später Vergleichswerte für
+in galaxy umgesetzt (GO / KEGG), um später Vergleichswerte für
 Plots/Zwischenergebnisse + GSEA zu haben (gleiche Pathways in R pipeline
 wie in Galaxy?)
 
@@ -166,7 +167,7 @@ RUVSeq (C) Pathway-Enrichment mit multiGSEA.
 
 Ergebnis ist eine für technische Störfaktoren korrigierte differentielle
 Expression und deren biologische Einordnung über KEGG/Reactome und
-HALLMARK.
+(optional) HALLMARK.
 
 Die drei Blöcke reproduzieren je eine offizielle Vignette: Block A die
 Carpentries-Lektion
@@ -176,8 +177,9 @@ Block B die Bioconductor-RUVSeq-Pipeline
 (Risso et al. 2014), Block C die multiGSEA-Pipeline
 <https://bioconductor.org/packages/release/bioc/vignettes/multiGSEA/inst/doc/multiGSEA.html>
 (Canzler et Hackermüller 2020). Upstream (nicht Teil dieses Skripts)
-liegt der Galaxy-Workflow FastQC → STAR (rn6/Rnor_6.0) → featureCounts;
-der Datensatz ist GSE144219 (GEO), *Rattus norvegicus*, Leber.
+liegt der Galaxy-Workflow FastQC -\> STAR (rn6/Rnor_6.0) -\>
+featureCounts; der Datensatz ist GSE144219 (GEO), *Rattus norvegicus*,
+Leber.
 
 Biologischer Hintergrund: Tetracycline hemmen primär die bakterielle
 Translation, als Off-Target aber auch die mitochondriale Translation
@@ -235,7 +237,7 @@ ist nötig, weil R Argumente erst spät auswertet (sonst bliebe die Datei
 leer). (ggplot-Objekte werden separat über `ggsave()` gespeichert.)
 
 ```{r save-base}
-fig_dir <- "../output"
+fig_dir <- "output"
 dir.create(fig_dir, recursive = TRUE, showWarnings = FALSE)
 
 save_base <- function(name, expr, w = 5, h = 3, res = 150, dev = c("png", "pdf")) {
@@ -299,7 +301,7 @@ die `colData` mit der Kovariate `condition` an. Die Faktorstufen sind
 behandelt/Kontrolle).
 
 ```{r read-counts}
-counts <- read.delim("../data/galaxy_featurecounts.tabular", row.names = 1, check.names = FALSE)
+counts <- read.delim("data/galaxy_featurecounts.tabular", row.names = 1, check.names = FALSE)
 dim(counts)
 counts <- as.matrix(counts)
 mode(counts) <- "integer"
@@ -335,8 +337,8 @@ statistisch getestet wird.
 
 ## SummarizedExperiment + Filtern
 
-Baut das zentrale Datenobjekt (Counts + `colData` in einem Container)
-und entfernt Gene mit 5 oder weniger Gesamt-Counts über alle Proben.
+Baut das Datenobjekt (Counts + `colData` in einem Container) und
+entfernt Gene mit 5 oder weniger Gesamt-Counts über alle Proben.
 
 ```{r a1-se}
 experiment <- SummarizedExperiment(assays = list(counts = counts), colData = coldata)
@@ -374,7 +376,7 @@ wehrden muss.
 
 `DESeqDataSet` + `estimateSizeFactors()`: Normalisierungsfaktor pro
 Probe, der libsize und RNA-Komposition ausgleicht (Median-of-ratios).
-Der Plot prüft, ob die Size factors systematisch mit der
+Der Plot stellt dar, wie die Size factors systematisch mit der
 Bibliotheksgröße oder der Gruppe zusammenhängen.
 
 ```{r a3-sizefactors}
@@ -391,7 +393,7 @@ ggsave(file.path(fig_dir, "02_sizefactor_vs_librarysize.png"), width = 7, height
 
 Plot: Die DESeq2-Size-factors (Median-of-ratios-Normalisierung) reichen
 von ca 0.7 bis ca 1.3 und steigen linear mit der Bibliotheksgröße. Eine
-Kontrolle bei 3e+07 Mio hat den kleinsten Faktor (ca. 0.7), die größten
+Kontrolle bei 3e+7 Mio hat den kleinsten Faktor (ca. 0.7), die größten
 Bibliotheken die größten Faktoren.\
 Interpretation: Der Size factor ist der pro-Probe-Skalierungsfaktor, der
 Tiefe und RNA-Komposition ausgleicht. Dass er monoton mit der
@@ -455,12 +457,12 @@ ht_dist
 
 Heatmap: Das Dendrogramm gruppiert grob: {GSM4283621, 4283622, 4283623}
 (drei Kontrollen) zusammen, {4283625, 4283624, 4283627} (drei
-Behandelte) zusammen — und dann GSM4283620 (Kontrolle) und GSM4283626
+Behandelte) zusammen und dann GSM4283620 (Kontrolle) und GSM4283626
 (Behandelt) als auffälliges Paar abseits ihrer jeweiligen Gruppe. Sechs
 von acht Proben clustern erwartet nach Bedingung, das stützt einen
 echten Behandlungseffekt. Aber zwei Proben (eine pro Gruppe) brechen aus
 dem erwarteten Muster aus und ähneln einander lt eukl. Distanz mehr als
-ihren Gruppen.\
+ihren eigentlichen Gruppen.\
 Wie damit umgehen? Dass die Distanz über alle Gene weniger sauber trennt
 als PCA (Plot 06), ist wohl erwartbar: Die paarweise Distanz summiert
 über alle Gene, also auch über die technische/unerwünschte Variation,
@@ -472,6 +474,8 @@ die RUV in Block B gezielt entfernen soll. Die PCA kann die
 Hauptkomponentenanalyse als Dimensionsreduktion: projeziert die Proben
 in die Ebene der größten Varianz. Trennen sich die Gruppen entlang PC1,
 ist der Behandlungseffekt die dominante Varianzquelle.
+
+integrated tool nehmen!!!
 
 ```{r a6-pca}
 pcaData    <- DESeq2::plotPCA(vsd, intgroup = "condition", returnData = TRUE)
@@ -494,12 +498,40 @@ Varianzquelle, denn es gibt gleich viel Struktur auf PC2 (ebenfalls 24
 -\> Echter Effekt, morderate Stärke, nennenswerte (unerklärte)
 Restvarianz macht ruv-Korrektur durchaus sinnvoll
 
+```{r a6_alternative-pca}
+#BiocManager::install("PCAtools")
+library(PCAtools)
+
+# VST-Matrix (Gene x Proben) und Metadaten aus dem vsd-Objekt ziehen
+mat  <- SummarizedExperiment::assay(vsd)
+meta <- as.data.frame(SummarizedExperiment::colData(vsd))
+
+# PCAtools verlangt: rownames(meta) == colnames(mat)
+stopifnot(all(colnames(mat) == rownames(meta)))
+
+# PCA. removeVar = 0.9 behaelt die 10% variabelsten Gene
+# (proportional, nicht Top-500 wie plotPCA; Argument weglassen = alle Gene)
+p <- PCAtools::pca(mat, metadata = meta, removeVar = 0.9)
+
+# Scores-Plot der Proben, eingefaerbt nach condition
+pca_plot <- PCAtools::biplot(
+  p,
+  colby          = "condition",
+  lab            = rownames(meta),  # Probennamen; lab = NULL blendet sie aus
+  pointSize      = 5,
+  labSize        = 3,
+  legendPosition = "right"
+)
+print(pca_plot)
+
+```
+
 ## Dispersionsschätzung
 
 DESeq2 modelliert Counts negativ-binomial; die Dispersion beschreibt die
-Überstreuung pro Gen. `estimateDispersions()` leiht Information über
-Gene aus (Shrinkage zur Trendkurve), was bei wenigen Replikaten
-stabilere Schätzungen liefert.
+Überstreuung pro Gen. `estimateDispersions()`gibt Information über Gene
+aus (Shrinkage zur Trendkurve), was bei wenigen Replikaten stabilere
+Schätzungen liefert.
 
 ```{r a7-dispersion}
 dds_eD <- estimateDispersions(dds)
@@ -510,12 +542,14 @@ save_base("07_dispersion_estimates", plotDispEsts(dds_eD), w = 7, h = 5)
 Plot Dispersionsschätzung: schwarz: gen-weise Rohschätzungen, blau:
 finale Schätzung, rot: Trendkurve\
 Dispersionskurve fällt mit steigendem Mittelwert und flacht dann bei
-hohen Counts wieder abn. Rohschätzungen werden zur roten Trendkurve hin
+hohen Counts wieder ab. Rohschätzungen werden zur roten Trendkurve hin
 geschrumpft.\
 Die Shrinkage ist der Grund, warum DESeq2 mit so wenigen Replikaten
-funktioniert: Sie leiht Information über Gene aus und stabilisiert
-verrauschte Einzelschätzungen. Die Form (fallend, dann flach) war
-erwartbar.\
+funktioniert: Sie leiht Information über Gene aus (Ausleihen meint hier,
+dass die Dispersionsschätzung für ein einzelnes Gen nicht nur aus den
+Counts dieses einen Gens stammt, sondern Information aus allen anderen
+Genen mitnutzt.) und stabilisiert verrauschte Einzelschätzungen. Die
+Form (fallend, dann flach) war erwartbar.\
 Cave! Das Band bei 1e-8 sind Gene mit quasi-null geschätzter Dispersion
 (oft niedrig- oder nahezu konstant exprimierte Gene); DESeq2 behandelt
 sie hier korrekt, und sie werden durch die unabhängige Filterung später
@@ -523,7 +557,7 @@ ohnehin meist aussortiert.
 
 ## Differentielle Expression (Wald-Test)
 
-Erste, noch unkorrigierte DE: GLM-Fit und Wald-Test auf den Kontrast
+Erste, noch unkorrigierte DE: GLM-Fit und Wald-Test auf den contrast
 behandelt gegen Kontrolle. Die RUV-korrigierte DE folgt in Block B.
 
 ```{r a8-wald}
@@ -535,7 +569,9 @@ summary(result)
 ## Volcano-Plot
 
 Stellt log2-Fold-Change gegen die Signifikanz dar und markiert
-hoch-/herunterregulierte Gene.
+hoch-/herunterregulierte Gene. lfc_cut ist eher kosmetischer Natur und
+codiert die biologische Effektstärke (ab welcher Effektstärker wird
+etwas als biol. relevant angesehen?)
 
 ```{r a9-volcano}
 res_df <- as.data.frame(result)
@@ -545,14 +581,14 @@ res_df <- res_df[!is.na(res_df$padj), ]
 top <- head(res_df[order(res_df$padj), ], 25)
 
 padj_cut <- 0.05
-lfc_cut  <- 1
-res_df$sig <- "n.s."
+lfc_cut  <- 0.2
+res_df$sig <- "under fold-change-threshold"
 res_df$sig[res_df$padj < padj_cut & res_df$log2FoldChange >  lfc_cut] <- "up"
 res_df$sig[res_df$padj < padj_cut & res_df$log2FoldChange < -lfc_cut] <- "down"
 
 ggplot(res_df, aes(x = log2FoldChange, y = -log10(padj), color = sig)) +
   geom_point(alpha = 0.6, size = 1.5) +
-  scale_color_manual(values = c(up = "firebrick", down = "steelblue", "n.s." = "grey70")) +
+  scale_color_manual(values = c(up = "firebrick", down = "steelblue", "n.s." = "grey50")) +
   geom_vline(xintercept = c(-lfc_cut, lfc_cut), linetype = "dashed", color = "grey40") +
   geom_hline(yintercept = -log10(padj_cut), linetype = "dashed", color = "grey40") +
   theme_bw() +
@@ -562,9 +598,11 @@ ggsave(file.path(fig_dir, "08_volcano.png"), width = 8, height = 6, dpi = 150)
 ```
 
 zu sehen: Die unkorrigierte DE aus Block A (treated/Kontrolle, ohne
-RUV). Schwellen: \|log2FC\| \> 1 und padj \< 0.05. Es passieren nur
-wenige Gene die Schwellen, etwas mehr als 15 hoch (rot, rechts) und ca.
-10 herunter (blau, links). Die überwältigende Mehrheit ist grau (n.s.)\
+RUV). Schwellen: \|log2FC\| \> 1 und padj \< 0.05. Links
+herunterregulierte Gene, rechts in rot hochregulierte Gene. Grau für
+"unterhalb der Grenzwert-Schwelle".
+
+\
 Interpretation:
 
 1.  Signifikanz ungleich Effektstärke. Das statistisch sicherste Gen hat
@@ -686,7 +724,7 @@ korrigiert nur eine globale Skala pro Probe. Sie kann keine
 strukturierte, genabhängige unerwünschte Variation (z. B. einen Batch,
 der bestimmte Genklassen betrifft) entfernen. Dafür ist RUV da
 
-PCA: Die dominante Achse ist von 46 % (roh) auf 19 % geschrumpft. Die
+PCA: Die dominante Achse ist von 46 % (raw) auf 19 % gesunken. Die
 Behandlung beginnt sich abzuzeichnen. Kontrollen tendenziell oben
 (positiver PC2), Treatments unten. Trennung ist noch unsauber und
 verteilt sich über beide Achsen...
@@ -754,7 +792,7 @@ Effekt dann etwas künstlich und konstruiert..
   meist gutartig (Risso et al. zeigen Robustheit), aber man sollte sich
   der Annahme bewusst sein.
 
-- **`W_1`** RUV? Es ist unklar `W_1` Batch, RNA-Qualität oder etwas
+- **`W_1`** RUV? Es ist unklar, ob `W_1` Batch, RNA-Qualität oder etwas
   anderes ist. Das ist akzeptabel (RUV soll latente Störung ja
   entfernen, nicht benennen), aber es heißt auch, dass man die Korrektur
   nicht mechanistisch begründen kann.
@@ -789,7 +827,7 @@ topTags(lrt)
   exprimiert (logCPM 11.96). Gen taucht in beiden Verfahren auf -\>
   vertrauenswürdiger Treffer
 
-## DE mit DESeq2 inkl. `W_1` — Wald und LRT
+## DE mit DESeq2 inkl. `W_1`, Wald und LRT
 
 Dieselbe RUV-korrigierte DE mit DESeq2; `W_1` steht im Design des
 `DESeqDataSet` (`~ W_1 + x`). Es werden zwei Tests mit eigenen Objekten
@@ -826,7 +864,7 @@ res_ruv <- res_ruv[order(res_ruv$padj), ]
 - Asymmetrie 163:76 ≈ 2:1 zugunsten der Hochregulation.Passt zu den
   späteren Enrichment-Befunden
 
-- Gen ENSRNOG00000030700: baseMean = 344.900 (extrem hoch exprimiert),
+- Gen ENSRNOG00000030700: baseMean = 345k (extrem hoch exprimiert),
   log2FC nur 0.46, padj = 4e-13. ...Winzige Faltung, aber durch die
   enorme, konsistente Expression hochsignifikant. Eine moderate, sehr
   verlässliche Verschiebung eines stark exprimierten (vermutlich
@@ -882,18 +920,55 @@ set4 <- RUVr(set, genes, k = 1, res)
 pData(set4)
 ```
 
-# C · Pathway-Enrichment (multiGSEA)
+# C) Pathway-Enrichment (multiGSEA)
 
 Folgt der multiGSEA-Vignette (Canzler et Hackermüller 2020). multiGSEA
 ist eine rangbasierte GSEA (intern fgsea) über mehrere Omics-Ebenen.
 Hier dargestellt ist nur eine (Transcriptom-Ebene). Input ist die
 RUV-korrigierte DE aus Block B.
 
+Funktionsweise von multiGSEA (grob): Alle Gene werden zu einer Rangliste
+sortiert. Man läuft die Liste von oben nach unten ab und führt eine
+laufende Summe: trifft man auf ein Gen des Sets, steigt sie (gewichtet
+mit dem Betrag des Rangwerts), trifft man auf ein Nicht-Mitglied, sinkt
+sie um einen festen Schritt. Der maximale Ausschlag dieser Kurve weg von
+der Null ist der Enrichment Score (ES). Maximum oben -\> positives ES
+(Set hochreguliert), unten -\> negatives ES (herunter). Der ES wird auf
+die Setgröße normalisiert -\> NES (vergleichbar zwischen verschieden
+großen Sets), und über eine Nullverteilung bekommt jedes Set pval und
+padj. Ranking: rankFeatures() baut die Rangliste aus der Richtung des
+Fold-Change und dem log-transformierten p-Wert, also faktisch
+sign(logFC) × −log10(p). Die Wahl der Ranking-Metrik kann das Ergebnis
+dabei deutlich beeinflussen.
+
+- Pathway-Quellen: Die Gensätze kommen über das graphite-Paket aus bis
+  zu acht Datenbanken (hier Reactome und KEGG), die Feature-IDs werden
+  über AnnotationDbi gemappt.
+
+- Aggregation: Die Anreicherung wird pro Omics-Layer separat gerechnet,
+  danach werden die p-Werte der Layer zu einem zusammengesetzten
+  Multi-Omics-Wert (wenn mehrere Layer verfügbar) kombiniert. Die
+  Kombination per combinePvalues() nutzt standardmäßig Stouffers
+  Z-Methode (ohne Bias), alternativ Fishers Test (Bias zu kleinen p)
+  oder Edgingtons Methode (Bias zu großen p).
+
+Enrichment-Begriff: Nicht einzelne Gene werden bewertet, sondern es wird
+hinterfragt, ob die Gene eines ganzen Pathways gemeinsam in eine
+Richtung verschoben sind und zwar stärker, als bei zufälliger Verteilung
+zu erwarten wäre. Ein Pathway ist „angereichert", wenn seine Mitglieder
+im nach Auf-/Abregulation sortierten Genranking nicht zufällig verstreut
+liegen, sondern sich am oberen Ende (koordiniert hoch) oder unteren Ende
+(koordiniert runter) häufen. Das funktioniert auch dann, wenn kein
+einzelnes Gen des Sets für sich betrachtet signifikant ist! Viele
+kleine, gleichgerichtete Verschiebungen summieren sich zu einem Signal
+auf Set-Ebene. Das ist auch der Unterschied zur ORA (goseq), die nur die
+Liste der schon signifikanten DE-Gene abzählt.
+
 ## Annotation: Symbole
 
 multiGSEA erwartet je Gen ein Symbol, einen logFC und einen p-Wert. Die
-Ensembl-IDs aus `res_ruv` werden über `org.Rn.eg.db` auf Symbole
-gemappt; Gene ohne Symbol und Duplikate werden entfernt.
+Ensembl-IDs aus `res_ruv` werden über `org.Rn.eg.db` auf .Symbole
+gemappt; Gene ohne Symbol und Duplikate werden entfernt
 
 ```{r c1-annotation}
 de <- as.data.frame(res_ruv)
@@ -910,9 +985,9 @@ transcriptome <- data.frame(Symbol = de$Symbol, logFC = de$log2FoldChange, pValu
 ## Ranking
 
 `rankFeatures(logFC, pValue)` erzeugt die Rangstatistik
-`sign(logFC) * -log10(p)`: starke, signifikante Hoch-Effekte landen
-oben, starke Runter-Effekte unten. Die Ranks werden mit den Symbolen
-benannt und in die multiGSEA-Datenstruktur gelegt.
+`sign(logFC) * -log10(p)`: starke, signifikante UP-Effekte landen oben,
+starke Down-Effekte unten. Die Ränge werden mit den Symbolen benannt und
+in die multiGSEA-Datenstruktur gepasst.
 
 ```{r c2-rank}
 omics_data <- initOmicsDataStructure(layer = c("transcriptome"))
@@ -940,12 +1015,18 @@ pathways <- getMultiOmicsFeatures(
 
 `multiGSEA()` rechnet die fgsea-Anreicherung; `extractPvalues()` zieht
 p- und padj-Werte heraus. Bei nur einer Omics-Ebene ist "combined"
-identisch mit "transcriptome". Diese CSV enthält keine
-Richtungsinformation (kein NES) — die Richtung kommt im nächsten Schritt
-aus dem Objekt selbst.
+identisch mit "transcriptome".
 
 ```{r c4-run}
 enrichment_scores <- multiGSEA(pathways, omics_data)
+
+#Richtungsanzeige mitimplementieren
+res_full <- enrichment_scores$transcriptome[
+  order(padj), .(pathway, NES, ES, pval, padj, size)]
+res_full[, leadingEdge := sapply(
+  enrichment_scores$transcriptome[order(padj)]$leadingEdge,
+  paste, collapse = ";")]
+fwrite(res_full, "output/multiGSEA_reactome_kegg.tsv", sep = "\t")
 
 df <- extractPvalues(enrichment_scores, pathwayNames = names(pathways[[1]]))
 df$combined_pval <- df$transcriptome_pval
@@ -954,13 +1035,12 @@ df <- cbind(pathway = names(pathways[[1]]), df)
 df <- df[order(df$combined_padj), ]
 head(df, 15)
 
-write.csv(df, "output/multiGSEA_pathway_results.csv", row.names = FALSE)
 ```
 
 ## Richtung (NES) + Treibergene
 
 Greift direkt auf das Anreicherungsobjekt zu: das NES-Vorzeichen gibt
-die Richtung (+ hoch, − runter), `leadingEdge` die tragenden Gene. Hier
+die Richtung (+ hoch, - unter), `leadingEdge` die tragenden Gene. Hier
 nach Tetracyclin-relevanten Themen gefiltert und die
 Vorzeichen-Konvention an zwei bekannten Genen geprüft.
 
@@ -974,17 +1054,20 @@ res[grepl("lipid|fatty acid|oxidative phosphoryl|respiratory electron|mitochondr
 
 res[pathway == "(REACTOME) Metabolism of lipids", leadingEdge][[1]]
 
-transcriptome[transcriptome$Symbol %in% c("Eif4ebp3","Fasn"), ]
-omics_data$transcriptome[c("Eif4ebp3","Fasn")]
+transcriptome[transcriptome$Symbol %in% c("Msmo1","Sqle"), ]
+omics_data$transcriptome[c("Msmo1","Sqle")]
 ```
 
-## Gegencheck: HALLMARK
+Die leading edge ist die Teilmenge der Set-Gene bis zum Punkt des
+maximalen Ausschlags
+
+## Optional: HALLMARK
 
 Wiederholt die Anreicherung gegen die MSigDB-HALLMARK-Sammlung (50
 kuratierte Sets) als unabhängigen Abgleich. HALLMARK ist
 Ensembl-basiert, daher werden die Ranks hier nach Ensembl benannt. Das
 Ergebnis wird inklusive NES und (zu Text gewandeltem) `leadingEdge` als
-TSV gespeichert — diese Datei trägt also die Richtung.
+TSV gespeichert
 
 ```{r c6-hallmark}
 hallmark <- msigdbr(species = "Rattus norvegicus", category = "H") %>%
@@ -1015,3 +1098,187 @@ fwrite(out, "output/data_hallmark_multiGSEA_results.tsv", sep = "\t")
 ```{r session}
 sessionInfo()
 ```
+
+# Tetracyclin in der Rattenleber, Interpretation und Quellenabgleich
+
+Datengrundlage Teil 1: ausschliesslich die beiden Ergebnisdateien meiner
+R/Bioconductor-Pipeline: `multiGSEA_reactome_kegg_with_NES.tsv`
+(Reactome + KEGG, jetzt mit NES/Richtung) und
+`data_hallmark_multiGSEA_results.tsv` (MSigDB Hallmark, fgsea).
+Datensatz GSE144219, 4 Kontrollen (GSM4283620–...623) gegen 4
+Tetracyclin (GSM4283624–...627, Treatment), männliche Rattenleber,
+Referenzgenom rn6/Rnor_6.0.
+
+## 1 Interpretation der Tetracyclin-Wirkung
+
+### Wie Tetracyclin wirkt (Literaturrecherche)
+
+Tetracycline hemmen die bakterielle Proteinsynthese, indem sie an die
+kleine ribosomale Untereinheit binden und die Anlagerung der
+Aminoacyl-tRNA an die A-Stelle blockieren. Weil das mitochondriale
+Ribosom bakteriellen Ursprungs ist, hemmen sie in eukaryotischen Zellen
+auch selektiv die mitochondriale Translation: die 13 mtDNA-kodierten
+Atmungsketten-Untereinheiten werden nicht mehr ausreichend gebildet,
+während die kernkodierten Komponenten unverändert weiterlaufen. Daraus
+entsteht ein mitonukleäres Protein-Ungleichgewicht mit mitochondrialem
+Proteostase-Stress, der über ein retrogrades Signal die nukleäre
+Genexpression verändert (Moullan et al., 2015).\
+Für die Leber kommt ein zweiter, gut belegter Mechanismus hinzu:
+Tetracyclin hemmt demnach die mitochondriale Fettsäure-β-Oxidation: in
+der Maus stieg die hepatische Triglyceridmenge dosisabhängig bis aufs
+Neunfache, histologisch in vivo mit mikrovesikulärer Steatose (Fréneaux
+et al., 1988). Die β-Oxidationshemmung als Steatose-Mechanismus ist
+reviewt (Fromenty und Pessayre, 1995).
+
+### Was daraus für die Genexpression zu erwarten ist
+
+Aus diesen Mechanismen und der Quellstudie ergeben sich konkrete
+Erwartungen:
+
+1.  Störung des Lipidstoffwechsels. Steatose und veränderte
+    Sterol-/Gallensäure-Homöostase sollten ein verändertes Lipidprogramm
+    hinterlassen (Fréneaux et al., 1988).
+2.  Antiproliferativer Effekt. Mitochondriale Translationshemmer
+    (Doxycyclin, Tigecyclin) wirken zytostatisch und arretieren den
+    Zellzyklus, in mehreren Modellen am G2/M-Übergang (B et Y, 2019;
+    Wang et al., 2021). Ein Herunterregulieren von
+    Zellzyklus-/Mitose-Genen ist demnach erwartbar.
+3.  Xenobiotika-Rezeptor-Antwort, da die Quellstudie diese Projekts
+    darauf ausgelegt ist(Podtelezhnikov et al., 2020).
+
+### Befunde in den eigenen Daten
+
+| Programm | Richtung | Belege (eigene Pipeline) |
+|------------------------|------------------------|------------------------|
+| Sterol-/Cholesterinbiosynthese | hoch | Hallmark CHOLESTEROL_HOMEOSTASIS NES +2.15 (padj 1.9e-05); Reactome Cholesterol biosynthesis +2.23, Lanosterol biosynthesis +2.04; Leading-Edge: Hmgcr, Hmgcs1, Sqle, Idi1, Mvk, Mvd, Lss, Dhcr24, Cyp51, Msmo1 und Srebf2 |
+| Gallensäure / Sterol-Transport | hoch | Hallmark BILE_ACID_METABOLISM +1.62 (0.022); Reactome Metabolism of steroids +1.97 |
+| Zellzyklus / Mitose | runter | Hallmark G2M_CHECKPOINT -1.81 (9.9e-05), E2F_TARGETS -1.69 (0.001); Reactome Cell Cycle -1.78, APC/C-mediated degradation -2.18; Leading-Edge: Cdk1, Ccnb1, Ccna2, Plk1, Cdc20, Bub1b, Cenpe |
+| Immun-/Entzündungsantwort | runter | Hallmark INTERFERON_ALPHA_RESPONSE -1.75 (0.005), TNFA_SIGNALING_VIA_NFKB -1.46 (0.023) |
+| OXPHOS | hoch, nicht signifikant! | Hallmark OXIDATIVE_PHOSPHORYLATION +1.38 (padj 0.08) |
+| Zytoplasmatische Translation / Ribosom | hoch | Reactome Eukaryotic Translation Initiation +2.17, rRNA processing +1.97, 40S/60S-Untereinheiten; KEGG „COVID-19" +1.98 (Artefakt, ist aber getrieben von Rpl-/Rps-Genen) |
+| UPR / Xenobiotika-Metabolismus | nicht signifikant | UNFOLDED_PROTEIN_RESPONSE +1.16 (0.34); XENOBIOTIC_METABOLISM +1.15 (0.34) |
+
+### Wo die Ergebnisse von den Erwartungen abweichen und warum
+
+Mehrere Erwartungen werden bestätigt: das Lipidprogramm ist betroffen,
+der Zellzyklus ist deutlich herunterreguliert (G2M und E2F), und die
+Immunantwort ist gedämpft. Das deckt sich mit den kanonischen
+Xenobiotika-Netzwerken Fettsäurestoffwechsel, Zellteilung und
+Immunantwort (Karri und Waxman, 2020). Weiter Punkte weichen von den
+Erwartungen ab:
+
+Die starke Hochregulation der Cholesterinbiosynthese ist robust, aber
+keine universelle Mitochondrien-Signatur. In anderen Modellen reprimiert
+eine mitochondriale Translationsstörung die Cholesterin-Gene sogar
+(Pyk2-Gsk3β-Srebp2-Achse) (Toshima et al, 2024), und in der
+mtDNA-Mutator-Leber sind cholesterogene Gene trotz Steatose
+herunterreguliert. Mein Befund ist daher am ehesten als
+SREBP-2-getriebene Antwort zu lesen. Srebf2 liegt selbst in der Leading
+Edge, und SREBP-2 steuert genau diesen Gensatz inklusive Hmgcr (Rong et
+al., 2017), vermutlich als homöostatische De-Repression bei gestörter
+Sterol-/Gallensäure-Bilanz infolge der Steatose (Fréneaux et al. 1988),
+und nicht als direkte Folge des Translationsblocks.
+
+Die zytoplasmatische Translation/Ribosombiogenese ist hochreguliert,
+obwohl die Proliferation sinkt , beides ist normalerweise gekoppelt.
+Plausibel wäre eine kompensatorische/retrograde Antwort auf den
+mitochondrialen Proteostase-Stress. Zwei Vorbehalte gehören dazu:
+ribosomale Proteingene reagieren eventuell empfindlich auf die
+Normalisierung, und der Spitzentreffer KEGG „COVID-19" wird
+ausschliesslich von Rpl-/Rps-Genen getragen. Ein Teil des Signals könnte
+also Normalisierungs- bzw. Annotationsartefakt sein; auf Pathway-Ebene
+allein ist das nicht auflösbar.
+
+Xenobiotika-Metabolismus schwach/nicht signifikant. Trotz Studien-Fokus
+(Podtelezhnikov et al.,2020): bei Hochdosis dominieren das zytostatische
+und das lipogene Signal die Rangliste; der Biomarker ist gen-spezifisch
+(bestimmte CYPs, NRF1-/NRF2-Zielgene) und wird vermutlich set-basiert
+unterschätzt.
+
+## 2 Vergleich mit den anderen Quellen
+
+### MERCK_Count_data: identische R-Pipeline, andere Count-Tabelle
+
+Die MERCK-Originalcounts ergeben praktisch dieselbe Biologie. Bei
+Hallmark korrelieren die NES mit Pearson 0.90, das Vorzeichen stimmt in
+46 von 50 Sets (92 %; die vier Abweichungen haben alle \|NES\| \< 1 und
+sind nicht signifikant). Der Anker ist identisch
+(CHOLESTEROL_HOMEOSTASIS +2.15 eigene gegen +2.09 MERCK). Alle neun
+signifikanten Hallmark-Sets der Pipeline sind eine Teilmenge der
+sechzehn MERCK-signifikanten; bei Reactome/KEGG sind 67 der 81
+MERCK-signifikanten Pathways auch bei in meiner Pipeline signifikant (83
+%). Der einzige systematische Unterschied ist Power: MERCK ist etwas
+trennschärfer und hebt sieben zusätzliche Hallmark-Sets über die
+Schwelle (FATTY_ACID_METABOLISM, OXIDATIVE_PHOSPHORYLATION,
+MTORC1_SIGNALING, MYC_TARGETS_V1, ADIPOGENESIS, PEROXISOME,
+ANDROGEN_RESPONSE), Diese sind in meinen Daten Grenzfälle mit padj
+0.06–0.14, aber alle in dieselbe Richtung wie bei der Auswertung der
+MERCK-Count-Tabelle. Dass OXPHOS bei MERCK signifikant wird (+1.57),
+stützt die obige Lesart einer mäglichen kompensatorischen
+Hochregulation.
+
+### Galaxy goseq unter Verwendung anderer Methode (OverRepresentationAnalysis) und anderer Datenbanken (KEGG, GO)
+
+goseq findet ausschliesslich den Sterol-/Lipid-/Gallen-Anker: Gemeinsam
+signifikant repräsentiert sind nur KEGG 00100 Steroid biosynthesis (6/18
+DE-Gene, padj 1.2e-05), 04976 Bile secretion (6/70, 0.029) und 00900
+Terpenoid backbone biosynthesis (3/14, 0.043), mit den entsprechenden
+GO-BP-Termen (Sterol-/Cholesterin-/Lipidbiosynthese). Zellzyklus,
+Immunantwort und Translation fehlen vollständig, also kein einziger
+signifikanter Term vorhanden. Das ist nicht unbedint ein Widerspruch,
+sondern eine strukturelle Eigenschaft der Methode. ORA testet, ob
+DE-Gene in einem Set über-repräsentiert sind. Bei nur wenigen hundert
+DE-Genen und nahezu null DE-Genen in den Zellzyklus- und
+Translations-Sets hat dieser Test dort wenig Power. goseq korrigiert
+zusätzlich die Längenverzerrung (Young et al., 2010), bleibt aber eine
+Methode auf der DE-Genliste. GSEA bzw. fgsea/multiGSEA bewerten dagegen
+die komplette Rangliste und erkennen koordinierte, unterschwellige
+Verschiebungen ganzer Gensätze (Subramanian et al., 2005; Korotkevich et
+al. 2021; multiGSEA: Canzler und Hackermüller 2020). Deshalb tauchen
+Zellzyklus-, Immun- und Translationsprogramme nur in den GSEA-Pathways
+auf. Die drei Auswertungen stimmen also dort überein, wo sie
+übereinstimmen können (der Sterol-Anker), und divergieren dort, wo sich
+die Teststärke der Methoden unterscheidet.
+
+## Quellen
+
+- Moullan N et al.: Tetracyclines disturb mitochondrial function across
+  eukaryotic models; Cell Reports 10(10):1681–1691;
+  <doi:10.1016/j.celrep.2015.02.034>; 2015
+- Fréneaux E et al.: Inhibition of the mitochondrial oxidation of fatty
+  acids by tetracycline in mice and in man; Hepatology;
+  <doi:10.1002/hep.1840080513>; 1998
+- Fromenty B, Pessayre D: Inhibition of mitochondrial beta-oxidation as
+  a mechanism of hepatotoxicity; Pharmacol Ther 67(1):101–154;
+  [doi:10.1016/0163-7258(95)00012-6](doi:10.1016/0163-7258(95)00012-6){.uri};
+  1995
+- B Hu et Y Guo: Inhibition of mitochondrial translation as a
+  therapeutic strategy for human ovarian cancer to overcome
+  chemoresistance; Biochemical and Biophysical Research Communication;
+  <doi:10.1016/j.bbrc.2018.12.127> ; 2019
+- Podtelezhnikov A et al: Quantitative Transcriptional Biomarkers of
+  Xenobiotic Receptor Activation in Rat Liver; Toxicoloc Science;
+  175(1):98–112; <doi:10.1093/toxsci/kfaa026>; 2020
+- Karri K, Waxman D: Widespread Dysregulation of Long Noncoding Genes
+  Associated With Fatty Acid Metabolism, Cell Division, and Immune
+  Response Gene Networks in Xenobiotic-exposed Rat Liver; PubMed;2020
+- Wang B et al.: Doxycycline sensitizes renal cell carcinoma to
+  chemotherapy by preferentially inhibiting mitochondrial translation;
+  Journal of International Medical Research;
+  <doi:10.1177/03000605211044368>; 2021
+- Toshima et al.: Mitochondrial translation failure represses
+  cholesterol gene expression via Pyk2-Gsk3β-Srebp2 axis; Life Science
+  Alliance; 7(7):e202302423; 2024
+- Rong S et al.: Expression of SREBP-1c Requires SREBP-2-mediated
+  Generation of a Sterol Ligand for LXR in Livers of Mice; eLife;
+  <doi:10.7554/eLife.25015>; 2024
+- Subramanian A et al.: Gene set enrichment analysis; PNAS
+  102(43):15545–15550; <doi:10.1073/pnas.0506580102>; 2005
+- Young M et al.: Gene ontology analysis for RNA-seq: accounting for
+  selection bias (goseq); Genome Biol; 11(2):R14;
+  <doi:10.1186/gb-2010-11-2-r14>; 2010
+- Korotkevich G et al.: Fast gene set enrichment analysis (fgsea);
+  bioRxiv; <doi:10.1101/060012>; 2021
+- Canzler S, Hackermüller J: multiGSEA: a GSEA-based pathway enrichment
+  analysis for multi-omics data; BMC Bioinformatics 21:561;
+  <doi:10.1186/s12859-020-03910-x>; 2020
